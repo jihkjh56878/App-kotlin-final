@@ -1,8 +1,10 @@
 package com.zando.app.ui.admin
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,13 +25,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.zando.app.model.*
+import com.zando.app.util.getBase64Bitmap
 import com.zando.app.viewmodel.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -175,13 +180,26 @@ fun ManageProductsScreen(viewModel: ManageProductsViewModel, onBack: () -> Unit)
     val products by viewModel.filteredProducts.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState.saveSuccess) {
+        if (uiState.saveSuccess) {
+            showAddDialog = false
+            viewModel.resetSaveState()
+            Toast.makeText(context, "Product saved successfully", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Manage Products") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = { IconButton(onClick = { selectedProduct = null; showAddDialog = true }) { Icon(Icons.Default.Add, "Add") } }
+                actions = { IconButton(onClick = { 
+                    selectedProduct = null
+                    viewModel.resetSaveState()
+                    showAddDialog = true 
+                }) { Icon(Icons.Default.Add, "Add") } }
             )
         }
     ) { padding ->
@@ -203,7 +221,15 @@ fun ManageProductsScreen(viewModel: ManageProductsViewModel, onBack: () -> Unit)
                         supportingContent = { Text("${product.brand} | $${product.price} | Stock: ${product.stock}") },
                         leadingContent = {
                             Box(Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray)) {
-                                if (product.imageUrl != null) {
+                                val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (product.imageUrl != null && product.imageUrl.startsWith("http")) {
                                     AsyncImage(model = product.imageUrl, contentDescription = null, contentScale = ContentScale.Crop)
                                 } else {
                                     Text(product.imageEmoji, Modifier.align(Alignment.Center))
@@ -212,7 +238,11 @@ fun ManageProductsScreen(viewModel: ManageProductsViewModel, onBack: () -> Unit)
                         },
                         trailingContent = {
                             Row {
-                                IconButton(onClick = { selectedProduct = product; showAddDialog = true }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Blue) }
+                                IconButton(onClick = { 
+                                    selectedProduct = product
+                                    viewModel.resetSaveState()
+                                    showAddDialog = true 
+                                }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Blue) }
                                 IconButton(onClick = { viewModel.deleteProduct(product.id) }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                             }
                         }
@@ -227,10 +257,11 @@ fun ManageProductsScreen(viewModel: ManageProductsViewModel, onBack: () -> Unit)
         ProductEditDialog(
             product = selectedProduct,
             isUploading = uiState.isUploading,
+            uploadError = uiState.uploadError,
             onDismiss = { showAddDialog = false },
             onSave = { p, uri -> 
-                viewModel.saveProduct(p, uri)
-                showAddDialog = false 
+                val imageBytes = uri?.let { context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() } }
+                viewModel.saveProduct(p, imageBytes)
             }
         )
     }
@@ -240,6 +271,7 @@ fun ManageProductsScreen(viewModel: ManageProductsViewModel, onBack: () -> Unit)
 fun ProductEditDialog(
     product: Product?,
     isUploading: Boolean,
+    uploadError: String?,
     onDismiss: () -> Unit,
     onSave: (Product, Uri?) -> Unit
 ) {
@@ -255,22 +287,41 @@ fun ProductEditDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = if (isUploading) ({}) else onDismiss,
         title = { Text(if (product == null) "Add Product" else "Edit Product") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                if (isUploading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (isUploading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Uploading product...", style = MaterialTheme.typography.labelSmall)
+                }
+                
+                if (uploadError != null) {
+                    Text(uploadError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
                 
                 // Image Picker
                 Box(
                     modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(12.dp))
-                        .background(Color.LightGray).clickable { launcher.launch("image/*") },
+                        .background(Color.LightGray).clickable(enabled = !isUploading) { launcher.launch("image/*") },
                     contentAlignment = Alignment.Center
                 ) {
                     if (selectedImageUri != null) {
                         AsyncImage(model = selectedImageUri, contentDescription = null, contentScale = ContentScale.Crop)
                     } else if (product?.imageUrl != null) {
-                        AsyncImage(model = product.imageUrl, contentDescription = null, contentScale = ContentScale.Crop)
+                        val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (product.imageUrl.startsWith("http")) {
+                            AsyncImage(model = product.imageUrl, contentDescription = null, contentScale = ContentScale.Crop)
+                        } else {
+                            Icon(Icons.Default.AddPhotoAlternate, null)
+                        }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.AddPhotoAlternate, null)
@@ -279,15 +330,15 @@ fun ProductEditDialog(
                     }
                 }
 
-                OutlinedTextField(name, { name = it }, label = { Text("Name") })
-                OutlinedTextField(brand, { brand = it }, label = { Text("Brand") })
-                OutlinedTextField(price, { price = it }, label = { Text("Price") })
-                OutlinedTextField(category, { category = it }, label = { Text("Category") })
-                OutlinedTextField(stock, { stock = it }, label = { Text("Stock") })
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, enabled = !isUploading)
+                OutlinedTextField(brand, { brand = it }, label = { Text("Brand") }, enabled = !isUploading)
+                OutlinedTextField(price, { price = it }, label = { Text("Price") }, enabled = !isUploading)
+                OutlinedTextField(category, { category = it }, label = { Text("Category") }, enabled = !isUploading)
+                OutlinedTextField(stock, { stock = it }, label = { Text("Stock") }, enabled = !isUploading)
             }
         },
         confirmButton = {
-            Button(enabled = !isUploading, onClick = {
+            Button(enabled = !isUploading && name.isNotBlank() && price.isNotBlank(), onClick = {
                 onSave(Product(
                     id = product?.id ?: 0,
                     name = name,
@@ -300,7 +351,9 @@ fun ProductEditDialog(
                 ), selectedImageUri)
             }) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { 
+            TextButton(enabled = !isUploading, onClick = onDismiss) { Text("Cancel") } 
+        }
     )
 }
 
@@ -311,11 +364,16 @@ fun ManageOrdersScreen(viewModel: ManageOrdersViewModel, onBack: () -> Unit) {
     Scaffold(topBar = { TopAppBar(title = { Text("Manage Orders") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { padding ->
         LazyColumn(Modifier.padding(padding)) {
             items(orders) { order ->
-                Card(Modifier.padding(8.dp).fillMaxWidth()) {
+                val backgroundColor = if (order.status == OrderStatus.REJECTED) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant
+                Card(
+                    modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = backgroundColor)
+                ) {
                     Column(Modifier.padding(12.dp)) {
                         Text("Order ID: ${order.id}", fontWeight = FontWeight.Bold)
+                        Text("Date: ${order.date}", style = MaterialTheme.typography.bodySmall)
                         Text("User: ${order.userName} | Total: $${"%.2f".format(order.total)}")
-                        Text("Status: ${order.status}", color = Color.Blue)
+                        Text("Status: ${order.status}", color = if (order.status == OrderStatus.REJECTED) Color.Red else Color.Blue)
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { viewModel.updateStatus(order.id, OrderStatus.ACCEPTED) }) { Text("Accept") }

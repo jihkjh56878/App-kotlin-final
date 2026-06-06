@@ -1,6 +1,7 @@
 package com.zando.app.ui.detail
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,15 +19,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.zando.app.model.Product
 import com.zando.app.ui.components.CartIconWithBadge
 import com.zando.app.ui.theme.*
+import com.zando.app.util.getBase64Bitmap
 import com.zando.app.viewmodel.ProductDetailViewModel
 
 @Composable
@@ -36,6 +43,7 @@ fun ProductDetailScreen(
     onBack: () -> Unit,
     onNavigateToCart: () -> Unit,
     onNavigateToFaq: () -> Unit,
+    onNavigateToProduct: (Int) -> Unit,
     language: String
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -175,7 +183,17 @@ fun ProductDetailScreen(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = product.imageEmoji, fontSize = 120.sp)
+                val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(text = product.imageEmoji, fontSize = 120.sp)
+                }
             }
 
             Column(modifier = Modifier.padding(16.dp)) {
@@ -293,6 +311,41 @@ fun ProductDetailScreen(
                 Spacer(Modifier.height(24.dp))
                 Text(t["similar_items"] ?: "", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(16.dp))
+
+                // Vertical grid for similar items so user can scroll down to see them all
+                val similarProducts = uiState.similarProducts
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    for (i in similarProducts.indices step 2) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            val item1 = similarProducts[i]
+                            Box(modifier = Modifier.weight(1f)) {
+                                SimilarItemCard(
+                                    product = item1,
+                                    onClick = { onNavigateToProduct(item1.id) }
+                                )
+                            }
+                            
+                            if (i + 1 < similarProducts.size) {
+                                val item2 = similarProducts[i + 1]
+                                Box(modifier = Modifier.weight(1f)) {
+                                    SimilarItemCard(
+                                        product = item2,
+                                        onClick = { onNavigateToProduct(item2.id) }
+                                    )
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(40.dp))
             }
         }
     }
@@ -302,6 +355,65 @@ fun ProductDetailScreen(
             onDismiss = { showSizeGuide = false },
             language = language
         )
+    }
+}
+
+@Composable
+private fun SimilarItemCard(product: Product, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (product.imageUrl != null && product.imageUrl.startsWith("http")) {
+                    AsyncImage(
+                        model = product.imageUrl,
+                        contentDescription = product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(text = product.imageEmoji, fontSize = 64.sp)
+                }
+            }
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = product.brand.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = product.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$${product.price}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
@@ -543,8 +655,7 @@ private fun SizeGuideDialog(onDismiss: () -> Unit, language: String) {
                     t["measurement"]!!,
                     modifier = Modifier.padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                    fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
                 MeasurementTable()
                 Spacer(Modifier.height(60.dp))

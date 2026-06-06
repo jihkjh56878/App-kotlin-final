@@ -18,7 +18,7 @@ class HomeViewModel(
     private val firestoreService: FirestoreService
 ) : ViewModel() {
 
-    private val _allProducts = MutableStateFlow<List<Product>>(emptyList())
+    private val _allProducts = MutableStateFlow<List<Product>>(ProductRepository.allProducts)
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
@@ -28,15 +28,28 @@ class HomeViewModel(
 
     val trendingProducts: StateFlow<List<Product>> = _allProducts
         .map { it.take(10) }
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ProductRepository.allProducts.take(10))
 
     val newArrivals: StateFlow<List<Product>> = _allProducts
-        .map { it.filter { p -> p.isNew || p.isSale }.take(8) }
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .map { products ->
+            val filtered = products.filter { it.isNew || it.isSale }
+            // If we have enough flagged products, show them. 
+            // Otherwise, show the latest 10 products (reversed) to ensure the section is full.
+            if (filtered.size >= 10) {
+                filtered.take(10)
+            } else {
+                products.reversed().take(10)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ProductRepository.allProducts.takeLast(10))
 
     init {
         viewModelScope.launch {
-            firestoreService.getProductsFlow().collect { _allProducts.value = it }
+            firestoreService.getProductsFlow().collect { firestoreProducts ->
+                if (firestoreProducts.isNotEmpty()) {
+                    _allProducts.value = firestoreProducts
+                }
+            }
         }
     }
 
@@ -116,6 +129,7 @@ class SearchViewModel(
 
 data class ProductDetailUiState(
     val product: Product? = null,
+    val similarProducts: List<Product> = emptyList(),
     val selectedSize: String? = null,
     val selectedColor: String = "Standard",
     val isWishlisted: Boolean = false,
@@ -141,9 +155,19 @@ class ProductDetailViewModel(
 
     fun loadProduct(productId: Int) {
         viewModelScope.launch {
-            val product = firestoreService.getAllProducts().find { it.id == productId }
+            val allProducts = firestoreService.getAllProducts()
+            val product = allProducts.find { it.id == productId }
+            
+            // Find similar items in the same category, excluding the current product
+            val similar = if (product != null) {
+                allProducts.filter { 
+                    it.category == product.category && it.id != product.id 
+                }.take(10)
+            } else emptyList()
+
             _uiState.update { it.copy(
                 product = product,
+                similarProducts = similar,
                 isWishlisted = product?.let { p -> wishlistRepo.isWishlisted(p) } ?: false
             ) }
         }
@@ -202,11 +226,14 @@ class CartViewModel(
             _isProcessing.value = true
             val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
             val orderId = "#ZND-${System.currentTimeMillis().toString().takeLast(8)}"
-            val date = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date())
+            
+            val timestamp = System.currentTimeMillis()
+            val date = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
             
             val order = Order(
                 id = orderId,
                 date = date,
+                timestamp = timestamp,
                 items = state.items.toList(),
                 total = state.total,
                 status = OrderStatus.PROCESSING,

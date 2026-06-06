@@ -1,5 +1,6 @@
 package com.zando.app.ui.cart
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,10 +15,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zando.app.model.CartItem
+import com.zando.app.util.getBase64Bitmap
 import com.zando.app.viewmodel.CartViewModel
 
 @Composable
@@ -144,7 +148,17 @@ private fun CartItemCard(
                     .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(item.product.imageEmoji, fontSize = 36.sp)
+                val bitmap = remember(item.product.imageUrl) { getBase64Bitmap(item.product.imageUrl) }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = item.product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(item.product.imageEmoji, fontSize = 36.sp)
+                }
             }
             
             Spacer(Modifier.width(12.dp))

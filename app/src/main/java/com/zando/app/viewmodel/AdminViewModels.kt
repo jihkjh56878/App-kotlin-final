@@ -1,11 +1,12 @@
 package com.zando.app.viewmodel
 
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zando.app.model.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 // ─── Admin Dashboard ViewModel ───────────────────────────────────────────────
 
@@ -22,26 +23,84 @@ class AdminDashboardViewModel(
     private val firestoreService: FirestoreService
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AdminDashboardUiState())
-    val uiState: StateFlow<AdminDashboardUiState> = _uiState.asStateFlow()
+    private val _isLoading = MutableStateFlow(false)
 
-    init {
-        refreshStats()
-    }
+    // Combine all database flows so the dashboard updates automatically
+    val uiState: StateFlow<AdminDashboardUiState> = combine(
+        firestoreService.getProductsFlow(),
+        firestoreService.getAllOrdersFlow(),
+        firestoreService.getUsersFlow(),
+        _isLoading
+    ) { products, orders, users, loading ->
+        
+        var revenue = 0.0
+        val dailyMap = mutableMapOf<String, Double>()
+        val monthlyMap = mutableMapOf<String, Double>()
+        val productCounts = mutableMapOf<String, Int>()
+
+        orders.forEach { order ->
+            if (order.status != OrderStatus.REJECTED) {
+                revenue += order.total
+                
+                dailyMap[order.date] = (dailyMap[order.date] ?: 0.0) + order.total
+                try {
+                    val date = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).parse(order.date)
+                    if (date != null) {
+                        val monthKey = SimpleDateFormat("MMM yyyy", Locale.getDefault()).format(date)
+                        monthlyMap[monthKey] = (monthlyMap[monthKey] ?: 0.0) + order.total
+                    }
+                } catch (e: Exception) { }
+
+                order.items.forEach { item ->
+                    productCounts[item.product.name] = (productCounts[item.product.name] ?: 0) + item.quantity
+                }
+            }
+        }
+
+        val report = SalesReport(
+            dailySales = dailyMap.toList().sortedBy { it.first }.takeLast(7).toMap(),
+            monthlySales = monthlyMap.toList().sortedBy { it.first }.takeLast(6).toMap(),
+            topSellingProducts = productCounts.toList().sortedByDescending { it.second }.take(5)
+        )
+
+        AdminDashboardUiState(
+            totalProducts = products.size,
+            totalOrders = orders.size,
+            totalUsers = users.size,
+            revenue = revenue,
+            salesReport = report,
+            isLoading = loading
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = AdminDashboardUiState(isLoading = true)
+    )
 
     fun refreshStats() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            val stats = firestoreService.getStats()
-            val report = firestoreService.getSalesReport()
-            _uiState.update { it.copy(
-                totalProducts = stats["totalProducts"] as? Int ?: 0,
-                totalOrders = stats["totalOrders"] as? Int ?: 0,
-                totalUsers = stats["totalUsers"] as? Int ?: 0,
-                revenue = stats["revenue"] as? Double ?: 0.0,
-                salesReport = report,
-                isLoading = false
-            ) }
+            _isLoading.value = true
+            // Also attempt to fix any products with large random IDs
+            try {
+                firestoreService.fixRandomProductIds()
+            } catch (e: Exception) { }
+            kotlinx.coroutines.delay(500) 
+            _isLoading.value = false
+        }
+    }
+
+    fun seedProducts() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                ProductRepository.allProducts.forEach { product ->
+                    firestoreService.addProduct(product)
+                }
+            } catch (e: Exception) {
+                // Error handled in UI or logs
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 }
@@ -51,7 +110,9 @@ class AdminDashboardViewModel(
 data class ManageProductsUiState(
     val isUploading: Boolean = false,
     val uploadError: String? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    val saveSuccess: Boolean = false,
+    val totalCount: Int = 0
 )
 
 class ManageProductsViewModel(
@@ -62,7 +123,8 @@ class ManageProductsViewModel(
     val uiState: StateFlow<ManageProductsUiState> = _uiState.asStateFlow()
 
     private val _allProducts = firestoreService.getProductsFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .onEach { list -> _uiState.update { it.copy(totalCount = list.size) } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val filteredProducts: StateFlow<List<Product>> = combine(_allProducts, _uiState) { products, state ->
         if (state.searchQuery.isBlank()) {
@@ -81,20 +143,30 @@ class ManageProductsViewModel(
         _uiState.update { it.copy(searchQuery = query) }
     }
 
-    fun saveProduct(product: Product, imageUri: Uri? = null) {
+    fun resetSaveState() {
+        _uiState.update { it.copy(saveSuccess = false, uploadError = null, isUploading = false) }
+    }
+
+    fun saveProduct(product: Product, imageBytes: ByteArray? = null) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isUploading = true, uploadError = null) }
+            _uiState.update { it.copy(isUploading = true, uploadError = null, saveSuccess = false) }
             try {
                 var finalProduct = product
-                if (imageUri != null) {
-                    val downloadUrl = firestoreService.uploadProductImage(imageUri)
+                if (imageBytes != null) {
+                    val downloadUrl = firestoreService.uploadProductImage(imageBytes)
                     finalProduct = product.copy(imageUrl = downloadUrl)
                 }
 
-                if (finalProduct.id == 0) firestoreService.addProduct(finalProduct)
-                else firestoreService.updateProduct(finalProduct)
+                if (finalProduct.id == 0) {
+                    // Let FirestoreService handle sequential ID generation
+                    firestoreService.addProduct(finalProduct)
+                } else {
+                    firestoreService.updateProduct(finalProduct)
+                }
+                
+                _uiState.update { it.copy(saveSuccess = true) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(uploadError = e.message) }
+                _uiState.update { it.copy(uploadError = e.message ?: "Unknown error occurred") }
             } finally {
                 _uiState.update { it.copy(isUploading = false) }
             }

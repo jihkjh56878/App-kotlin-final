@@ -1,5 +1,6 @@
 package com.zando.app.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,19 +11,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.zando.app.model.Product
 import com.zando.app.ui.theme.*
+import com.zando.app.util.getBase64Bitmap
 
 // ─── Product Card ─────────────────────────────────────────────────────────────
 
@@ -52,13 +55,25 @@ fun ProductCard(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                if (product.imageUrl != null) {
-                    AsyncImage(
-                        model = product.imageUrl,
+                val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
                         contentDescription = product.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
+                } else if (product.imageUrl != null && product.imageUrl.startsWith("http")) {
+                    // Fallback for URL images if any
+                    androidx.compose.runtime.key(product.imageUrl) {
+                        coil.compose.AsyncImage(
+                            model = product.imageUrl,
+                            contentDescription = product.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                 } else {
                     Text(text = product.imageEmoji, fontSize = 56.sp)
                 }
@@ -172,8 +187,17 @@ fun TrendingCard(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                if (product.imageUrl != null) {
-                    AsyncImage(
+                val bitmap = remember(product.imageUrl) { getBase64Bitmap(product.imageUrl) }
+                
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = product.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (product.imageUrl != null && product.imageUrl.startsWith("http")) {
+                    coil.compose.AsyncImage(
                         model = product.imageUrl,
                         contentDescription = product.name,
                         modifier = Modifier.fillMaxSize(),

@@ -276,6 +276,11 @@ fun ZandoApp(
                     onBack             = { navController.navigateUp() },
                     onNavigateToCart   = { navController.navigate(Routes.CART) },
                     onNavigateToFaq    = { navController.navigate(Routes.FAQ) },
+                    onNavigateToProduct = { id -> 
+                        navController.navigate(Routes.detail(id)) {
+                            // popUpTo(Routes.HOME) // Optional: avoid deep stack
+                        }
+                    },
                     language           = language
                 )
             }

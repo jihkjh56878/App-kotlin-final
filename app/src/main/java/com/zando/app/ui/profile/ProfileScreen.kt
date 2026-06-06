@@ -41,25 +41,46 @@ fun ProfileScreen(
         "km" -> mapOf(
             "admin" to "បន្ទះគ្រប់គ្រង",
             "manage" to "ចូលទៅកាន់ Dashboard",
+            "account" to "គណនី",
+            "orders" to "ការបញ្ជាទិញរបស់ខ្ញុំ",
+            "orders_sub" to "តាមដានការទិញរបស់អ្នក",
             "settings" to "ការកំណត់",
+            "dark_mode" to "មុខងារងងឹត",
             "lang" to "ភាសា",
             "support" to "ការគាំទ្រ",
+            "faq" to "សំណួរដែលសួរញឹកញាប់",
+            "privacy" to "គោលការណ៍ឯកជនភាព",
+            "contact" to "ទាក់ទងមកយើង",
             "logout" to "ចាកចេញ"
         )
         "zh" -> mapOf(
             "admin" to "管理面板",
             "manage" to "打开仪表板",
+            "account" to "账户",
+            "orders" to "我的订单",
+            "orders_sub" to "跟踪您的购买",
             "settings" to "设置",
+            "dark_mode" to "深色模式",
             "lang" to "语言",
             "support" to "支持",
+            "faq" to "常见问题",
+            "privacy" to "隐私政策",
+            "contact" to "联系我们",
             "logout" to "登出"
         )
         else -> mapOf(
             "admin" to "Admin Panel",
             "manage" to "Open Admin Dashboard",
+            "account" to "Account",
+            "orders" to "My Orders",
+            "orders_sub" to "Track your purchases",
             "settings" to "Settings",
+            "dark_mode" to "Dark Mode",
             "lang" to "Language",
             "support" to "Support",
+            "faq" to "FAQs",
+            "privacy" to "Privacy Policy",
+            "contact" to "Contact Us",
             "logout" to "Log Out"
         )
     }
@@ -94,10 +115,10 @@ fun ProfileScreen(
 
         // Conditional Admin Section
         if (userProfile?.role == UserRole.ADMIN) {
-            SectionCard(title = t["admin"]!!) {
+            SectionCard(title = t["admin"] ?: "") {
                 ProfileMenuItem(
-                    title = "Dashboard & Reports",
-                    subtitle = t["manage"]!!,
+                    title = t["admin"] ?: "",
+                    subtitle = t["manage"] ?: "",
                     icon = Icons.Default.AdminPanelSettings,
                     onClick = onNavigateToAdmin
                 )
@@ -105,26 +126,26 @@ fun ProfileScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        SectionCard(title = "Account") {
-            ProfileMenuItem("My Orders", "Track your purchases") { onNavigateToOrders() }
+        SectionCard(title = t["account"] ?: "") {
+            ProfileMenuItem(t["orders"] ?: "", t["orders_sub"] ?: "") { onNavigateToOrders() }
         }
 
         Spacer(Modifier.height(12.dp))
 
-        SectionCard(title = t["settings"]!!) {
+        SectionCard(title = t["settings"] ?: "") {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("🌙 Dark Mode", style = MaterialTheme.typography.bodyMedium)
+                Text("🌙 " + (t["dark_mode"] ?: ""), style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = darkTheme, onCheckedChange = onToggleDarkTheme)
             }
         }
 
         Spacer(Modifier.height(12.dp))
 
-        SectionCard(title = t["lang"]!!) {
+        SectionCard(title = t["lang"] ?: "") {
             listOf("en" to "English 🇬🇧", "km" to "Khmer 🇰🇭", "zh" to "中文 🇨🇳").forEach { (code, label) ->
                 Row(
                     modifier = Modifier
@@ -142,10 +163,10 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        SectionCard(title = t["support"]!!) {
-            ProfileMenuItem("FAQs", "") { onNavigateToFaq() }
-            ProfileMenuItem("Privacy Policy", "") { onNavigateToPrivacyPolicy() }
-            ProfileMenuItem("Contact Us", "") { onNavigateToContactUs() }
+        SectionCard(title = t["support"] ?: "") {
+            ProfileMenuItem(t["faq"] ?: "", "") { onNavigateToFaq() }
+            ProfileMenuItem(t["privacy"] ?: "", "") { onNavigateToPrivacyPolicy() }
+            ProfileMenuItem(t["contact"] ?: "", "") { onNavigateToContactUs() }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -155,7 +176,7 @@ fun ProfileScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(50.dp),
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) { Text(t["logout"]!!) }
+        ) { Text(t["logout"] ?: "") }
         
         Spacer(Modifier.height(24.dp))
     }
